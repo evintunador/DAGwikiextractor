@@ -15,6 +15,9 @@ import sys
 from timeit import default_timer
 from multiprocessing import Pool, cpu_count
 from functools import partial
+import glob
+from itertools import chain
+from tqdm import tqdm
 
 from extract import process_wikitext
 
@@ -24,26 +27,45 @@ from extract import process_wikitext
 
 def process_article_worker(article_data, output_dir):
     """
-    A single worker's task: process one article's text and save it.
-    This function is executed in a separate process.
+    A single worker's task: process one article's text and save it
+    into a subdirectory based on the first letter of its title.
     """
+    title = None # Initialize for robust error logging
     try:
-        title, source_text = article_data
+        title, source_text, page_id = article_data
         
         # Process the raw wikitext through our cleaning pipeline
         final_text = process_wikitext(source_text)
         
-        # Save to file
+        # Generate a safe filename for the article
         output_filename = get_safe_filename(title)
-        output_path = os.path.join(output_dir, output_filename)
+        
+        # Determine the subdirectory and handle problematic filenames
+        if output_filename and output_filename[0].isalnum():
+            # Use the first letter for standard articles
+            first_char = output_filename[0].upper()
+        else:
+            # Use a catch-all for others
+            first_char = '_'
+            # If the original filename was invalid, use the page ID as a fallback name
+            if not output_filename:
+                output_filename = f"{page_id}.md"
+
+        # Create the subdirectory if it doesn't exist. This is safe for multiprocessing.
+        subdir_path = os.path.join(output_dir, first_char)
+        os.makedirs(subdir_path, exist_ok=True)
+        
+        # Construct the final path and save the file
+        output_path = os.path.join(subdir_path, output_filename)
         
         with open(output_path, 'w', encoding='utf-8') as out_file:
             out_file.write(f"# {title}\n\n")
             out_file.write(final_text)
         return 1 # Return 1 for success
     except Exception as e:
-        # Log errors from worker processes if they occur
-        logging.error(f"Error processing article: {title} - {e}")
+        # Safely log the title if it was assigned
+        article_title = title if title else "Unknown Article"
+        logging.error(f"Error processing article: {article_title} - {e}")
         return 0 # Return 0 for failure
 
 # ===========================================================================
@@ -74,7 +96,7 @@ def read_articles(file_handle, limit):
         try:
             article = json.loads(line)
             if article.get('namespace') == 0 and 'source_text' in article:
-                yield (article['title'], article['source_text'])
+                yield (article['title'], article['source_text'], article.get('page_id', 0))
                 count += 1
                 if limit and count >= limit:
                     return
@@ -105,15 +127,21 @@ def process_dump(input_file, output_dir, limit=None, process_count=None):
             # Create a partial function with the output_dir already filled in
             worker = partial(process_article_worker, output_dir=output_dir)
             
-            # Use imap_unordered for memory efficiency. It processes the iterable
-            # without loading everything into memory at once.
+            # Use imap_unordered for memory efficiency.
             article_iterator = read_articles(f, limit)
-            results = pool.imap_unordered(worker, article_iterator, chunksize=100)
             
-            for result in results:
+            # Since we don't know the total number of articles beforehand, tqdm
+            # will show progress as iterations/sec without a percentage bar.
+            results_iterator = pool.imap_unordered(worker, article_iterator, chunksize=100)
+            progress_bar = tqdm(
+                results_iterator,
+                desc=f"Processing {os.path.basename(input_file)}",
+                unit=" articles",
+                total=limit # Provide total if limit is known for a better bar
+            )
+            
+            for result in progress_bar:
                 articles_processed += result
-                if articles_processed % 1000 == 0:
-                    logging.info(f"Processed {articles_processed} articles...")
     
     duration = default_timer() - start_time
     # Avoid division by zero if the process was very fast or processed nothing
@@ -134,8 +162,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "input", 
-        help="Input Wikipedia Cirrus dump file (.json.gz)"
+        "inputs", 
+        nargs='+',
+        help="One or more input Wikipedia Cirrus dump files (.json.gz) or directories."
     )
     parser.add_argument(
         "-o", "--output", 
@@ -165,7 +194,32 @@ def main():
     log_level = logging.WARNING if args.quiet else logging.INFO
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
-    process_dump(args.input, args.output, args.limit, args.processes)
+    # --- File Discovery and Sorting ---
+    dump_files = []
+    for path in args.inputs:
+        if os.path.isdir(path):
+            # Use glob to find all matching files recursively
+            found_files = glob.glob(os.path.join(path, '**', '*.json.gz'), recursive=True)
+            dump_files.extend(found_files)
+        elif os.path.isfile(path):
+            dump_files.append(path)
+        else:
+            logging.warning(f"Input path is not a valid file or directory, skipping: {path}")
+    
+    # Sort files alphabetically, which works for date-stamped filenames
+    dump_files.sort()
+
+    if not dump_files:
+        logging.error("No input files found. Aborting.")
+        return
+
+    logging.info(f"Found {len(dump_files)} dump file(s) to process in order:")
+    for f in dump_files:
+        logging.info(f"  - {os.path.basename(f)}")
+    # --- End File Discovery ---
+
+    for input_file in dump_files:
+        process_dump(input_file, args.output, args.limit, args.processes)
 
 if __name__ == '__main__':
     main()

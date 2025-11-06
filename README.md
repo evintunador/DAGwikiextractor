@@ -7,6 +7,7 @@ This project was originally adapted from the much more complex [attardi/wikiextr
 ## Features
 
 -   **Processes Cirrus Dumps**: Directly reads the gzipped, line-delimited JSON format of Wikipedia Cirrus dumps.
+-   **Parallel Processing**: Utilizes multiple CPU cores to process articles in parallel, dramatically speeding up extraction.
 -   **Link Preservation**: Converts `[[wiki links]]` and `[[wiki links|with custom text]]` into standard `[Markdown links](wiki_links)`.
 -   **Comprehensive Cleaning**: Removes a wide variety of wikitext noise, including:
     -   Template calls (`{{...}}`)
@@ -16,6 +17,15 @@ This project was originally adapted from the much more complex [attardi/wikiextr
     -   Unwanted sections (e.g., "References", "See also", "External links").
 -   **Simple & Fast**: With no need for a complex template expansion engine, the script is fast and has no external dependencies.
 -   **One File Per Article**: Each Wikipedia article is saved as a cleanly formatted `.md` file.
+-   **Sharded Output**: Organizes output files into subdirectories (e.g., `A/`, `B/`, `C/`) based on the first letter of the article title, improving filesystem performance and navigability for very large datasets.
+
+## Installation
+
+This project uses `tqdm` for progress bars. It is recommended to install dependencies inside a virtual environment.
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 
@@ -29,28 +39,32 @@ This tool is designed to work with Cirrus dumps, which contain the pre-expanded 
 
 ### 2. Run the Extractor
 
-Place the downloaded dump file in your project directory (or a subdirectory like `data/`) and run the script from your terminal:
+You can provide one or more dump files or directories as input. If you provide a directory, the script will automatically find all `.json.gz` files inside it and process them in chronological order.
 
 ```bash
-python main.py <path_to_dump_file>
+python main.py <path_to_dump_file_or_dir>...
 ```
 
-**Example:**
+**Examples:**
 
 ```bash
-# Process the entire dump and save files to the default 'output/' directory
+# Process a single dump file
 python main.py data/simplewiki-20251027-cirrussearch-content.json.gz
 
-# Process only the first 100 articles for a quick test
-python main.py data/simplewiki-20251027-cirrussearch-content.json.gz --limit 100
+# Process multiple specific dump files
+python main.py dump1.json.gz dump2.json.gz
 
-# Specify a different output directory
-python main.py data/simplewiki-20251027-cirrussearch-content.json.gz -o processed_articles/
+# Process all dumps within a directory
+python main.py data/
+
+# Process multiple dumps and limit to the first 100 articles found in each
+python main.py data/ --limit 100
 ```
 
 ### Command-Line Options
 
--   `input`: (Required) The path to the input Wikipedia Cirrus dump file (`.json.gz`).
+-   `inputs`: (Required) One or more paths to input Wikipedia Cirrus dump files (`.json.gz`) or directories containing them.
 -   `-o, --output`: The directory where extracted Markdown files will be saved. Defaults to `output`.
--   `--limit`: An optional integer to limit the number of articles to process. Very useful for testing.
+-   `--limit`: An optional integer to limit the number of articles to process *from each dump file*. Very useful for testing.
+-   `-p, --processes`: The number of worker processes to use. Defaults to one less than the number of CPU cores.
 -   `-q, --quiet`: Suppress progress reporting during extraction.

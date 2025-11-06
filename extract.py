@@ -143,10 +143,15 @@ def format_sections_and_whitespace(text):
         if first_line_is_header:
             header_line = processed_section_lines.pop(0)
             m = re.match(r'^(==+)\s*(.*?)\s*\1$', header_line)
-            title = m.group(2)
-            level = len(m.group(1))
-            # Format header and join with its content
-            output_parts.append(f"{'#' * level} {title}\n" + '\n'.join(processed_section_lines))
+            if m:
+                # This is a well-formed header
+                title = m.group(2)
+                level = len(m.group(1))
+                # Format header and join with its content
+                output_parts.append(f"{'#' * level} {title}\n" + '\n'.join(processed_section_lines))
+            else:
+                # This is a malformed header, treat it as plain text to avoid crashing
+                output_parts.append(header_line + '\n' + '\n'.join(processed_section_lines))
         else:
             # This is the intro content
             output_parts.append('\n'.join(processed_section_lines))
