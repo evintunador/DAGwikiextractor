@@ -13,8 +13,38 @@ import os
 import re
 import sys
 from timeit import default_timer
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 from extract import process_wikitext
+
+# ===========================================================================
+# Worker Process Function
+# ===========================================================================
+
+def process_article_worker(article_data, output_dir):
+    """
+    A single worker's task: process one article's text and save it.
+    This function is executed in a separate process.
+    """
+    try:
+        title, source_text = article_data
+        
+        # Process the raw wikitext through our cleaning pipeline
+        final_text = process_wikitext(source_text)
+        
+        # Save to file
+        output_filename = get_safe_filename(title)
+        output_path = os.path.join(output_dir, output_filename)
+        
+        with open(output_path, 'w', encoding='utf-8') as out_file:
+            out_file.write(f"# {title}\n\n")
+            out_file.write(final_text)
+        return 1 # Return 1 for success
+    except Exception as e:
+        # Log errors from worker processes if they occur
+        logging.error(f"Error processing article: {title} - {e}")
+        return 0 # Return 0 for failure
 
 # ===========================================================================
 # Helper Functions
@@ -35,63 +65,62 @@ def get_safe_filename(title):
         safe_name = safe_name[:200]
     return safe_name + '.md'
 
+def read_articles(file_handle, limit):
+    """
+    A generator that reads the dump file line by line, yielding article data.
+    """
+    count = 0
+    for line in file_handle:
+        try:
+            article = json.loads(line)
+            if article.get('namespace') == 0 and 'source_text' in article:
+                yield (article['title'], article['source_text'])
+                count += 1
+                if limit and count >= limit:
+                    return
+        except json.JSONDecodeError:
+            continue
+
 # ===========================================================================
 # Core Processing Logic
 # ===========================================================================
 
-def process_dump(input_file, output_dir, limit=None):
+def process_dump(input_file, output_dir, limit=None, process_count=None):
     """
-    Reads a Wikipedia Cirrus dump, processes each article, and saves it
-    as a Markdown file.
-
-    :param input_file: Path to the .json.gz Cirrus dump file.
-    :param output_dir: Directory to save the output .md files.
-    :param limit: Optional number of articles to process.
+    Reads a Wikipedia Cirrus dump, processes each article in parallel, 
+    and saves it as a Markdown file.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     logging.info(f"Starting extraction from '{input_file}'...")
+    logging.info(f"Using {process_count} worker processes.")
     start_time = default_timer()
     articles_processed = 0
 
+    # The main process will read the file and put articles into the pool
     with gzip.open(input_file, 'rt', encoding='utf-8') as f:
-        for line in f:
-            try:
-                article = json.loads(line)
-            except json.JSONDecodeError:
-                # Skip metadata lines or malformed JSON
-                continue
+        # Create a pool of worker processes
+        with Pool(processes=process_count) as pool:
+            # Create a partial function with the output_dir already filled in
+            worker = partial(process_article_worker, output_dir=output_dir)
             
-            # We are interested in articles from the main namespace (namespace 0)
-            if article.get('namespace') == 0 and 'source_text' in article:
-                title = article['title']
-                source_text = article['source_text']
-
-                # Process the raw wikitext through our cleaning pipeline
-                final_text = process_wikitext(source_text)
-                
-                # Save to file
-                output_filename = get_safe_filename(title)
-                output_path = os.path.join(output_dir, output_filename)
-                
-                with open(output_path, 'w', encoding='utf-8') as out_file:
-                    out_file.write(f"# {title}\n\n")
-                    out_file.write(final_text)
-                
-                articles_processed += 1
-                
+            # Use imap_unordered for memory efficiency. It processes the iterable
+            # without loading everything into memory at once.
+            article_iterator = read_articles(f, limit)
+            results = pool.imap_unordered(worker, article_iterator, chunksize=100)
+            
+            for result in results:
+                articles_processed += result
                 if articles_processed % 1000 == 0:
                     logging.info(f"Processed {articles_processed} articles...")
-                
-                if limit and articles_processed >= limit:
-                    logging.info(f"Reached article limit of {limit}. Stopping.")
-                    break
     
     duration = default_timer() - start_time
+    # Avoid division by zero if the process was very fast or processed nothing
+    rate = (articles_processed / duration) if duration > 0 else 0
     logging.info(
         f"Finished processing {articles_processed} articles in {duration:.2f}s "
-        f"({articles_processed / duration:.2f} art/s)"
+        f"({rate:.2f} art/s)"
     )
 
 # ===========================================================================
@@ -120,6 +149,12 @@ def main():
         help="Limit the number of articles to process (for testing)"
     )
     parser.add_argument(
+        "-p", "--processes",
+        type=int,
+        default=cpu_count() - 1,
+        help=f"Number of worker processes to use (default: {cpu_count() - 1})"
+    )
+    parser.add_argument(
         "-q", "--quiet", 
         action="store_true", 
         help="Suppress progress reporting"
@@ -130,7 +165,7 @@ def main():
     log_level = logging.WARNING if args.quiet else logging.INFO
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
-    process_dump(args.input, args.output, args.limit)
+    process_dump(args.input, args.output, args.limit, args.processes)
 
 if __name__ == '__main__':
     main()
