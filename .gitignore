@@ -52,3 +52,7 @@ Session.vim
 *~
 
 /venv/
+
+# data directory for test files
+/data/
+/output/
