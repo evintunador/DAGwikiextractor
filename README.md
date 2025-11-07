@@ -42,23 +42,23 @@ This tool is designed to work with Cirrus dumps, which contain the pre-expanded 
 You can provide one or more dump files or directories as input. If you provide a directory, the script will automatically find all `.json.gz` files inside it and process them in chronological order.
 
 ```bash
-python main.py <path_to_dump_file_or_dir>...
+python dump_extractor.py <path_to_dump_file_or_dir>...
 ```
 
 **Examples:**
 
 ```bash
 # Process a single dump file
-python main.py data/simplewiki-20251027-cirrussearch-content.json.gz
+python dump_extractor.py data/simplewiki-20251027-cirrussearch-content.json.gz
 
 # Process multiple specific dump files
-python main.py dump1.json.gz dump2.json.gz
+python dump_extractor.py dump1.json.gz dump2.json.gz
 
 # Process all dumps within a directory
-python main.py data/
+python dump_extractor.py data/
 
 # Process multiple dumps and limit to the first 100 articles found in each
-python main.py data/ --limit 100
+python dump_extractor.py data/ --limit 100
 ```
 
 ### Command-Line Options
@@ -68,3 +68,23 @@ python main.py data/ --limit 100
 -   `--limit`: An optional integer to limit the number of articles to process *from each dump file*. Very useful for testing.
 -   `-p, --processes`: The number of worker processes to use. Defaults to one less than the number of CPU cores.
 -   `-q, --quiet`: Suppress progress reporting during extraction.
+
+## 3. Build the Link Graph
+
+After extracting the articles into Markdown files, you can generate a link graph in the memory-efficient JSON Lines format. This file will contain every article title along with its corresponding outgoing and incoming links.
+
+```bash
+# Run the graph builder on the output directory
+python build_graph.py output/
+
+# You can also specify a different output file and a limit for testing
+python build_graph.py output/ --output my_graph.jsonl --limit 10000
+```
+
+### Graph Builder Options
+
+-   `input_dir`: (Required) The directory containing the extracted `.md` files.
+-   `-o, --output`: The path for the output graph file. Defaults to `graph.jsonl`.
+-   `--limit`: An optional integer to limit the number of articles to process for the graph. Very useful for testing.
+-   `-p, --processes`: The number of worker processes to use. Defaults to one less than the number of CPU cores.
+-   `-q, --quiet`: Suppress progress reporting.

@@ -2,7 +2,7 @@ import os
 import random
 import argparse
 
-def estimate_tokens_in_directory(directory, sample_size=1000, chars_per_token=4):
+def estimate_tokens_in_directory(directory, sample_size=10_000, chars_per_token=4):
     """
     Estimates the total number of tokens in a directory of text files,
     searching recursively through all subdirectories.
