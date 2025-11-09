@@ -36,6 +36,8 @@ def extract_links_worker(filepath):
 
             # Read the rest of the file and find all markdown links
             content = f.read()
+            char_count = len(title_line) + len(content)
+            
             # This regex finds links but avoids image links ![...](...)
             # It captures the link target from [text](target)
             links = re.findall(r'\[[^!\]]*?\]\((.*?)\)', content)
@@ -45,7 +47,7 @@ def extract_links_worker(filepath):
             from urllib.parse import unquote
             outgoing_links = {unquote(link.replace('_', ' ')) for link in links}
 
-            return (title, list(outgoing_links))
+            return (title, list(outgoing_links), char_count)
     except Exception as e:
         logging.warning(f"Could not process file {filepath}: {e}")
         return None
@@ -145,11 +147,12 @@ def main():
     graph = {}
 
     # First pass: add all nodes and their outgoing links
-    for title, outgoing_links in link_data:
+    for title, outgoing_links, char_count in link_data:
         if title not in graph:
-            graph[title] = {'outgoing': [], 'incoming': []}
+            graph[title] = {'outgoing': [], 'incoming': [], 'char_count': 0}
         # We use a set to avoid duplicate links from the same article
         graph[title]['outgoing'].extend(outgoing_links)
+        graph[title]['char_count'] = char_count
     
     # Second pass: build the incoming links
     for source_title, data in graph.items():
@@ -176,6 +179,7 @@ def main():
         for title in progress_bar:
             node_data = {
                 'title': title,
+                'char_count': graph[title]['char_count'],
                 'outgoing': sorted(list(set(graph[title]['outgoing']))),
                 'incoming': sorted(list(set(graph[title]['incoming'])))
             }
