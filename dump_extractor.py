@@ -19,7 +19,7 @@ import glob
 from itertools import chain
 from tqdm import tqdm
 
-from extract import process_wikitext
+from extract import process_wikitext, normalize_title
 
 # ===========================================================================
 # Worker Process Function
@@ -37,8 +37,8 @@ def process_article_worker(article_data, output_dir):
         # Process the raw wikitext through our cleaning pipeline
         final_text = process_wikitext(source_text)
         
-        # Generate a safe filename for the article
-        output_filename = get_safe_filename(title)
+        # Generate a safe, normalized filename for the article
+        output_filename = normalize_title(title) + '.md'
         
         # Determine the subdirectory and handle problematic filenames
         if output_filename and output_filename[0].isalnum():
@@ -47,8 +47,8 @@ def process_article_worker(article_data, output_dir):
         else:
             # Use a catch-all for others
             first_char = '_'
-            # If the original filename was invalid, use the page ID as a fallback name
-            if not output_filename:
+            # If the original filename was invalid/empty after normalization, use the page ID as a fallback
+            if not output_filename or output_filename == '.md':
                 output_filename = f"{page_id}.md"
 
         # Create the subdirectory if it doesn't exist. This is safe for multiprocessing.
@@ -59,7 +59,7 @@ def process_article_worker(article_data, output_dir):
         output_path = os.path.join(subdir_path, output_filename)
         
         with open(output_path, 'w', encoding='utf-8') as out_file:
-            out_file.write(f"# {title}\n\n")
+            # We no longer write the title as a header
             out_file.write(final_text)
         return 1 # Return 1 for success
     except Exception as e:
@@ -71,21 +71,6 @@ def process_article_worker(article_data, output_dir):
 # ===========================================================================
 # Helper Functions
 # ===========================================================================
-
-def get_safe_filename(title):
-    """
-    Converts an article title into a safe, valid filename.
-    """
-    # Replace characters that are invalid in filenames with an underscore
-    safe_name = re.sub(r'[/\\?%*:|"<>]', '_', title)
-    # Trim whitespace from the ends
-    safe_name = safe_name.strip()
-    # Reduce multiple underscores to a single one
-    safe_name = re.sub(r'__+', '_', safe_name)
-    # Ensure the filename is not excessively long
-    if len(safe_name) > 200:
-        safe_name = safe_name[:200]
-    return safe_name + '.md'
 
 def read_articles(file_handle, limit):
     """

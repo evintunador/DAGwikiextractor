@@ -31,6 +31,11 @@ def process_wikitext(text):
     The main pipeline for processing raw wikitext into clean Markdown.
     Each step is a separate function for clarity and maintainability.
     """
+    # Pre-processing
+    text = html.unescape(text)
+    text = fix_math_tags(text)
+    text = rescue_number_templates(text)
+
     # The order of these operations is important.
     text = remove_comments(text)
     text = remove_templates(text)
@@ -39,12 +44,52 @@ def process_wikitext(text):
     text = remove_external_links(text)
     text = convert_internal_links(text)
     text = convert_bold_and_italics(text)
+    
+    text = fix_indented_math(text)
     text = format_sections_and_whitespace(text)
     return text
 
 # ======================================================================
 # Individual Cleaning Steps
 # ======================================================================
+
+def fix_math_tags(text):
+    """Converts <math>...</math> to $$...$$."""
+    return re.sub(r'<math.*?>(.*?)</math>', r'$$\1$$', text, flags=re.DOTALL)
+
+def rescue_number_templates(text):
+    """
+    Preserves content of specific numeric templates before they are removed.
+    e.g. {{val|0.999...}} -> 0.999...
+    """
+    # Handle {{val|...}} - often used for numbers with uncertainty or units
+    # We capture the first argument.
+    text = re.sub(r'\{\{val\|([^|}]+).*?\}\}', r'\1', text, flags=re.IGNORECASE)
+    
+    # Handle {{overline|...}} - used for repeating decimals
+    text = re.sub(r'\{\{overline\|(.*?)\}\}', r'\1', text, flags=re.IGNORECASE)
+    
+    return text
+
+def fix_indented_math(text):
+    """
+    Converts lines starting with a space that look like math to $$...$$
+    """
+    lines = text.split('\n')
+    new_lines = []
+    for line in lines:
+        # Check if line starts with space and has some math-like content
+        # Heuristic: starts with space, contains = or + or - or \ or numbers
+        # And is not a list item (* or -)
+        # Also check for common math symbols including unescaped entities
+        if line.startswith(' ') and not line.strip().startswith(('*', '-', '#')):
+            stripped = line.strip()
+            # Basic check for math symbols: =, +, − (unicode), \, ×, ÷
+            if any(x in stripped for x in ['=', '+', '−', '\\', '×', '÷']):
+                 new_lines.append(f"$${stripped}$$")
+                 continue
+        new_lines.append(line)
+    return '\n'.join(new_lines)
 
 def remove_comments(text):
     """Removes HTML-style comments."""
@@ -90,15 +135,46 @@ def convert_internal_links(text):
         title = inner[:pipe].rstrip() if pipe > -1 else inner
         label = inner[pipe + 1:].strip() if pipe > -1 else title
 
+        # Handle wikt: prefix
+        if title.lower().startswith('wikt:'):
+            title = title[5:]
+            if pipe == -1:
+                label = title
+
         if any(title.lower().startswith(p) for p in ['file:', 'image:', 'category:', 'media:']):
             res += text[cur:s] # Keep the original text if it's a file/image link
         else:
-            encoded_title = title.replace(' ', '_')
+            encoded_title = normalize_title(title)
             res += f"{text[cur:s]}[{label}]({encoded_title}){trail}"
             
         cur = end
         
     return res + text[cur:]
+
+def normalize_title(title):
+    """
+    Normalizes a title for use in filenames and link targets.
+    Strict normalization to ensure alignment:
+    - Lowercase
+    - Replace spaces and special characters with underscores
+    - Limit length
+    """
+    # Decode HTML entities
+    title = html.unescape(title)
+    # Lowercase
+    title = title.lower()
+    # Replace spaces with underscores
+    title = title.replace(' ', '_')
+    # Replace invalid chars with underscores (keep only alphanumeric, hyphen, underscore)
+    title = re.sub(r'[^a-z0-9\-_]', '_', title)
+    # Collapse underscores
+    title = re.sub(r'__+', '_', title)
+    # Strip leading/trailing underscores
+    title = title.strip('_')
+    # Limit length
+    if len(title) > 200:
+        title = title[:200]
+    return title
 
 def convert_bold_and_italics(text):
     """Converts wikitext bold/italics to Markdown."""
