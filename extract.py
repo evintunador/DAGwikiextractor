@@ -22,10 +22,11 @@ def process_wikitext(text):
     text = remove_wikitables(text)
     text = remove_reference_tags(text)
     text = remove_external_links(text)
+    text = fix_broken_links(text)
     text = convert_internal_links(text)
     text = convert_html_formatting(text)
-    text = convert_bold_and_italics(text)
     text = fix_lists(text)
+    text = convert_bold_and_italics(text)
     
     text = fix_indented_math(text)
     text = format_sections_and_whitespace(text)
@@ -96,6 +97,13 @@ def remove_external_links(text):
     """
     text = re.sub(r'\[https?://[^ ]+\s+(.*?)\]', r'\1', text)
     return re.sub(r'\[https?://[^ ]+\]', '', text)
+
+def fix_broken_links(text):
+    """
+    Fixes malformed wikilinks that break the parser.
+    e.g. [[Link] -> [Link]
+    """
+    return re.sub(r'\[\[([^\[\]]*?)\](?!\])', r'[\1]', text)
 
 def convert_internal_links(text):
     """
@@ -224,13 +232,25 @@ def fix_lists(text):
     Converts wikitext list items to Markdown.
     - Converts • bullets to -
     - Converts : indentation/definition lists to > blockquotes
+    - Converts * lists to - (handling nesting)
+    - Converts # lists to 1. (handling nesting)
     """
     # Fix bullet points using •
     text = re.sub(r'^•\s*', '- ', text, flags=re.MULTILINE)
     
     # Fix definition lists/indentation with :
-    # We look for lines starting with : and replace with > 
     text = re.sub(r'^:\s*', '> ', text, flags=re.MULTILINE)
+    
+    # Fix nested lists (process deepest first)
+    # Wikitext lists (*, **, ***)
+    text = re.sub(r'^\*{3}\s*', '    - ', text, flags=re.MULTILINE)
+    text = re.sub(r'^\*{2}\s*', '  - ', text, flags=re.MULTILINE)
+    text = re.sub(r'^\*\s*', '- ', text, flags=re.MULTILINE)
+    
+    # Wikitext numbered lists (#, ##, ###)
+    text = re.sub(r'^#{3}\s*', '    1. ', text, flags=re.MULTILINE)
+    text = re.sub(r'^#{2}\s*', '  1. ', text, flags=re.MULTILINE)
+    text = re.sub(r'^#\s*', '1. ', text, flags=re.MULTILINE)
     
     return text
 
@@ -327,20 +347,20 @@ def drop_nested(text, open_delim, close_delim):
     close_re = re.compile(close_delim)
     
     events = sorted(
-        [(m.start(), 1) for m in open_re.finditer(text)] +
-        [(m.start(), -1) for m in close_re.finditer(text)]
+        [(m.start(), 1, m.end() - m.start()) for m in open_re.finditer(text)] +
+        [(m.start(), -1, m.end() - m.start()) for m in close_re.finditer(text)]
     )
     
     level = 0
     start = -1
     spans_to_drop = []
 
-    for pos, type in events:
+    for pos, type, length in events:
         if level == 0 and type == 1:
             start = pos
         level += type
         if level == 0 and start != -1:
-            spans_to_drop.append((start, pos + len(close_delim)))
+            spans_to_drop.append((start, pos + length))
             start = -1
             
     for s, e in reversed(spans_to_drop):

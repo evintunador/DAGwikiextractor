@@ -22,14 +22,19 @@ You must follow this rigorous Iterative Improvement Cycle for each potential iss
     - Plan a modification to `extract.py`.
     - Prefer general, abstract fixes (e.g., "handle all colon-prefixed file links") over specific hard-coded patches.
 
-3.  **Test the Fix (The Experiment)**:
+3.  **Experimentally Test the Fix**:
     - **Step 3a**: Create a new experimental dataset. Run `dump_extractor.py` with a small limit (e.g., `--limit 1000`) to a *new* directory (e.g., `data/simplewiki_experiment`).
       - *Critical*: Use a small limit to save time and space.
     - **Step 3b**: Verify the fix. Use `utils/compare_directories.py` to compare your baseline directory against your experiment directory.
       - Check that the specific issue you targeted is fixed.
       - Check the other diffs provided by the tool to ensure you haven't broken valid text elsewhere.
 
-4.  **Review & Approval**:
+4. **Build Pytest Test**:
+    - **Step 4a**: Run the existing tests inside `tests/` to ensure you've not broken any of them with your latest fix.
+    - **Step 4b**: Write a focused test to ensure that your latest fix isn't messed with by future fixe implementations.
+    - **Step 4c**: Ensure your new test runs.
+
+5.  **Review & Approval**:
     - **If the fix works**:
         - Report the success and the specific improvement made.
         - Provide the `utils/compare_directories.py` command for the user to verify.
