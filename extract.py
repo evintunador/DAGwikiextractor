@@ -20,6 +20,7 @@
 
 import re
 import html
+import hashlib
 from urllib.parse import quote as urlencode
 
 # ======================================================================
@@ -43,6 +44,7 @@ def process_wikitext(text):
     text = remove_reference_tags(text)
     text = remove_external_links(text)
     text = convert_internal_links(text)
+    text = convert_html_formatting(text)
     text = convert_bold_and_italics(text)
     
     text = fix_indented_math(text)
@@ -134,15 +136,32 @@ def convert_internal_links(text):
         
         title = inner[:pipe].rstrip() if pipe > -1 else inner
         label = inner[pipe + 1:].strip() if pipe > -1 else title
+        
+        # Clean title for checking prefixes
+        clean_title = title.strip().lower()
 
         # Handle wikt: prefix
-        if title.lower().startswith('wikt:'):
-            title = title[5:]
+        if clean_title.startswith('wikt:'):
+            # preserve original casing/spacing after prefix if needed, 
+            # but usually we just want the content.
+            # Find where the prefix ends in the original title
+            prefix_match = re.match(r'\s*wikt:', title, re.IGNORECASE)
+            if prefix_match:
+                title = title[prefix_match.end():]
+            
             if pipe == -1:
                 label = title
 
-        if any(title.lower().startswith(p) for p in ['file:', 'image:', 'category:', 'media:']):
-            res += text[cur:s] # Keep the original text if it's a file/image link
+        # Check for standard prefixes (embedded images/files/categories)
+        # These are typically stripped entirely.
+        if any(clean_title.startswith(p) for p in ['file:', 'image:', 'category:', 'media:']):
+            res += text[cur:s] 
+        
+        # Check for colon prefixes (text links to files/images/categories)
+        # e.g. [[:Image:Foo.jpg|Label]] -> Label
+        elif any(clean_title.startswith(':' + p) for p in ['file:', 'image:', 'category:', 'media:']):
+            res += f"{text[cur:s]}{label}"
+
         else:
             encoded_title = normalize_title(title)
             res += f"{text[cur:s]}[{label}]({encoded_title}){trail}"
@@ -151,6 +170,31 @@ def convert_internal_links(text):
         
     return res + text[cur:]
 
+def convert_html_formatting(text):
+    """
+    Converts HTML tags to Markdown or removes them.
+    """
+    # Blockquotes
+    def quote_repl(match):
+        content = match.group(1)
+        return '\n' + '\n'.join(f"> {line.strip()}" for line in content.splitlines() if line.strip()) + '\n'
+    
+    text = re.sub(r'<blockquote.*?>(.*?)</blockquote>', quote_repl, text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Superscripts and Subscripts
+    text = re.sub(r'<sup.*?>(.*?)</sup>', r'^\1', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<sub.*?>(.*?)</sub>', r'_\1', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove intrusive tags but keep content
+    # Includes nowiki, big, small, center, font, span, div, u, s, strike, code, tt
+    text = re.sub(r'</?(?:nowiki|big|small|center|font|span|div|u|s|strike|code|tt)\b.*?>', '', text, flags=re.IGNORECASE)
+    
+    # Remove self-closing nowiki and br
+    text = re.sub(r'<nowiki\s*/>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    
+    return text
+
 def normalize_title(title):
     """
     Normalizes a title for use in filenames and link targets.
@@ -158,23 +202,37 @@ def normalize_title(title):
     - Lowercase
     - Replace spaces and special characters with underscores
     - Limit length
+    - Appends a hash of the pre-stripped title to ensure distinct documents
+      (e.g. 'A+B' vs 'A-B') don't collide.
     """
     # Decode HTML entities
     title = html.unescape(title)
-    # Lowercase
-    title = title.lower()
-    # Replace spaces with underscores
-    title = title.replace(' ', '_')
+    
+    # Pre-normalization canonicalization (soft) to determine identity
+    # This handles case-insensitivity and space/underscore equivalence
+    canonical = title.lower().strip().replace(' ', '_')
+    
+    # Compute hash of the canonical form to distinguish different symbols
+    # e.g. "a+b" vs "a-b" which both normalize to "a_b" below.
+    # We use MD5 and take the first 6 chars for a compact suffix.
+    title_hash = hashlib.md5(canonical.encode('utf-8')).hexdigest()[:6]
+
+    # Apply strict normalization for the filename part
+    clean_title = canonical
+    
     # Replace invalid chars with underscores (keep only alphanumeric, hyphen, underscore)
-    title = re.sub(r'[^a-z0-9\-_]', '_', title)
+    clean_title = re.sub(r'[^a-z0-9\-_]', '_', clean_title)
     # Collapse underscores
-    title = re.sub(r'__+', '_', title)
+    clean_title = re.sub(r'__+', '_', clean_title)
     # Strip leading/trailing underscores
-    title = title.strip('_')
-    # Limit length
-    if len(title) > 200:
-        title = title[:200]
-    return title
+    clean_title = clean_title.strip('_')
+    
+    # Limit length (leave room for hash and separator)
+    # 200 - 1 (separator) - 6 (hash) = 193
+    if len(clean_title) > 193:
+        clean_title = clean_title[:193]
+        
+    return f"{clean_title}_{title_hash}"
 
 def convert_bold_and_italics(text):
     """Converts wikitext bold/italics to Markdown."""

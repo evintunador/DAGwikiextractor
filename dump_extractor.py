@@ -25,7 +25,7 @@ from extract import process_wikitext, normalize_title
 # Worker Process Function
 # ===========================================================================
 
-def process_article_worker(article_data, output_dir):
+def process_article_worker(article_data, output_dir, write_title: bool):
     """
     A single worker's task: process one article's text and save it
     into a subdirectory based on the first letter of its title.
@@ -59,7 +59,8 @@ def process_article_worker(article_data, output_dir):
         output_path = os.path.join(subdir_path, output_filename)
         
         with open(output_path, 'w', encoding='utf-8') as out_file:
-            out_file.write(f"# {title}\n\n")
+            if write_title:
+                out_file.write(f"# {title}\n\n")
             out_file.write(final_text)
         return 1 # Return 1 for success
     except Exception as e:
@@ -92,7 +93,7 @@ def read_articles(file_handle, limit):
 # Core Processing Logic
 # ===========================================================================
 
-def process_dump(input_file, output_dir, limit=None, process_count=None):
+def process_dump(input_file, output_dir, limit=None, process_count=None, write_title: bool = False):
     """
     Reads a Wikipedia Cirrus dump, processes each article in parallel, 
     and saves it as a Markdown file.
@@ -110,7 +111,7 @@ def process_dump(input_file, output_dir, limit=None, process_count=None):
         # Create a pool of worker processes
         with Pool(processes=process_count) as pool:
             # Create a partial function with the output_dir already filled in
-            worker = partial(process_article_worker, output_dir=output_dir)
+            worker = partial(process_article_worker, output_dir=output_dir, write_title=write_title)
             
             # Use imap_unordered for memory efficiency.
             article_iterator = read_articles(f, limit)
@@ -169,6 +170,12 @@ def main():
         help=f"Number of worker processes to use (default: {cpu_count() - 1})"
     )
     parser.add_argument(
+        "--write_title",
+        action="store_true",
+        default=False,
+        help="If set, include the Wikipedia page title in each output markdown file.",
+    )
+    parser.add_argument(
         "-q", "--quiet", 
         action="store_true", 
         help="Suppress progress reporting"
@@ -204,7 +211,7 @@ def main():
     # --- End File Discovery ---
 
     for input_file in dump_files:
-        process_dump(input_file, args.output, args.limit, args.processes)
+        process_dump(input_file, args.output, args.limit, args.processes, args.write_title)
 
 if __name__ == '__main__':
     main()
