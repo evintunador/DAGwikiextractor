@@ -59,7 +59,7 @@ def process_article_worker(article_data, output_dir):
         output_path = os.path.join(subdir_path, output_filename)
         
         with open(output_path, 'w', encoding='utf-8') as out_file:
-            # We no longer write the title as a header
+            out_file.write(f"# {title}\n\n")
             out_file.write(final_text)
         return 1 # Return 1 for success
     except Exception as e:
