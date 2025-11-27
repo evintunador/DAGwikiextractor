@@ -29,18 +29,18 @@ You must follow this rigorous Iterative Improvement Cycle for each potential iss
       - Check that the specific issue you targeted is fixed.
       - Check the other diffs provided by the tool to ensure you haven't broken valid text elsewhere.
 
-4.  **Commit or Revert**:
+4.  **Review & Approval**:
     - **If the fix works**:
-        - Delete the old baseline directory.
-        - Rename your experiment directory to be the new baseline.
         - Report the success and the specific improvement made.
+        - Provide the `utils/compare_directories.py` command for the user to verify.
+        - **Wait for user approval** before promoting the experiment to baseline or deleting anything.
     - **If the fix fails or has bad side effects**:
         - Revert the changes to `extract.py`.
         - Delete the experiment directory.
         - Try a different approach.
 
 ### Constraints & Best Practices
-- **Storage Management**: You have limited storage. ALWAYS delete the old baseline or the failed experiment folder immediately after you are done comparing. Never keep more than two dataset versions (baseline + experiment) at a time.
+- **Storage Management**: You have limited storage. However, do not delete the experiment folder until the user has verified the results. Clean up old approved experiments only when starting a new cycle or when explicitly instructed.
 - **Formatting**:
     - Convert `*italics*` and `**bold**` to standard Markdown.
     - Use `> Quote` for blockquotes.

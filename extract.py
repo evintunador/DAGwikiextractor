@@ -25,6 +25,7 @@ def process_wikitext(text):
     text = convert_internal_links(text)
     text = convert_html_formatting(text)
     text = convert_bold_and_italics(text)
+    text = fix_lists(text)
     
     text = fix_indented_math(text)
     text = format_sections_and_whitespace(text)
@@ -217,6 +218,21 @@ def convert_bold_and_italics(text):
     """Converts wikitext bold/italics to Markdown."""
     text = re.sub(r"'''(.*?)'''", r'**\1**', text) # Bold
     return re.sub(r"''(.*?)''", r'*\1*', text)   # Italics
+
+def fix_lists(text):
+    """
+    Converts wikitext list items to Markdown.
+    - Converts • bullets to -
+    - Converts : indentation/definition lists to > blockquotes
+    """
+    # Fix bullet points using •
+    text = re.sub(r'^•\s*', '- ', text, flags=re.MULTILINE)
+    
+    # Fix definition lists/indentation with :
+    # We look for lines starting with : and replace with > 
+    text = re.sub(r'^:\s*', '> ', text, flags=re.MULTILINE)
+    
+    return text
 
 def format_sections_and_whitespace(text):
     """
