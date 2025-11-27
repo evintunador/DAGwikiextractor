@@ -10,13 +10,10 @@ import gzip
 import json
 import logging
 import os
-import re
-import sys
 from timeit import default_timer
 from multiprocessing import Pool, cpu_count
 from functools import partial
 import glob
-from itertools import chain
 from tqdm import tqdm
 
 from extract import process_wikitext, normalize_title
