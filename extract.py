@@ -25,6 +25,7 @@ def process_wikitext(text):
     text = fix_broken_links(text)
     text = convert_internal_links(text)
     text = convert_html_formatting(text)
+    text = fix_date_ranges(text)
     text = fix_lists(text)
     text = convert_bold_and_italics(text)
     
@@ -181,6 +182,16 @@ def convert_html_formatting(text):
     text = re.sub(r'<nowiki\s*/>', '', text, flags=re.IGNORECASE)
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
     
+    return text
+
+def fix_date_ranges(text):
+    """
+    Fixes concatenated date ranges in parentheses.
+    e.g., (19271949) -> (1927-1949)
+    Commonly appears for birth-death dates or event date ranges.
+    """
+    # Match 4-digit year pairs in parentheses and insert a dash
+    text = re.sub(r'\((\d{4})(\d{4})\)', r'(\1-\2)', text)
     return text
 
 def normalize_title(title):

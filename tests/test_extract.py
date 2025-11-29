@@ -11,7 +11,7 @@ from extract import (
     remove_comments, remove_templates, remove_wikitables, remove_reference_tags,
     remove_external_links, convert_internal_links, convert_html_formatting,
     convert_bold_and_italics, fix_indented_math, format_sections_and_whitespace,
-    normalize_title, remove_unwanted_sections
+    normalize_title, remove_unwanted_sections, fix_date_ranges
 )
 
 class TestExtract(unittest.TestCase):
@@ -175,6 +175,27 @@ Content 2.
         lines = ["== Header ==", "Content", "== References ==", "Ref", "== External Links ==", "Link"]
         res = remove_unwanted_sections(lines)
         self.assertEqual(res, ["== Header ==", "Content"])
+
+    def test_fix_date_ranges(self):
+        """Test fixing concatenated date ranges in parentheses."""
+        cases = [
+            # Birth-death dates
+            ("John Taylor (15801653) was a poet.", "John Taylor (1580-1653) was a poet."),
+            # Event date ranges
+            ("The Chinese Civil War (19271949) resulted in...", "The Chinese Civil War (1927-1949) resulted in..."),
+            ("The Beatles (19621970) were a band.", "The Beatles (1962-1970) were a band."),
+            # Multiple occurrences
+            ("Person A (19001950) and Person B (19201980).", "Person A (1900-1950) and Person B (1920-1980)."),
+            # Should not change valid dates already formatted
+            ("Already correct (1927-1949) date.", "Already correct (1927-1949) date."),
+            # Should not change single years
+            ("In the year (1995) something happened.", "In the year (1995) something happened."),
+            # Should not change non-year numbers
+            ("Call (5551234) for info.", "Call (5551234) for info."),
+        ]
+        for inp, expected in cases:
+            with self.subTest(inp=inp):
+                self.assertEqual(fix_date_ranges(inp), expected)
 
 if __name__ == '__main__':
     unittest.main()
