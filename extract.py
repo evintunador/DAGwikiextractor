@@ -351,6 +351,18 @@ def remove_file_references(text):
     # but the file references remained
     text = re.sub(r'^File:[^\n]*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
     
+    # Remove lines that start with Image: (alternative prefix)
+    text = re.sub(r'^Image:[^\n]*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+    
+    # Remove lines with image file extensions followed by pipe (leftover gallery entries)
+    # Examples: "filename.png|caption", "image.jpg|[Link](target)"
+    image_extensions = r'(?:png|jpg|jpeg|gif|svg|webp|bmp|tiff)'
+    text = re.sub(rf'^[^|\n]*\.{image_extensions}\|[^\n]*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+    
+    # Remove imagemap entries (complex gallery syntax)
+    # Example: "<imagemap>File:filename.ext|very long caption|420px|thumb"
+    text = re.sub(r'^<imagemap>[^\n]*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+    
     return text
 
 def fix_date_ranges(text):

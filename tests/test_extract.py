@@ -353,6 +353,22 @@ class TestExtract(unittest.TestCase):
             # File: mentioned in text (not at line start)
             ("The File:Something.jpg is mentioned inline.", 
              "The File:Something.jpg is mentioned inline."),
+             
+            # Image: prefix
+            ("Some content.\nImage:SW686-TargetChampion-1a.jpg|\nMore content.", 
+             "Some content.\n\nMore content."),
+             
+            # Gallery entries with file extensions
+            ("Some content.\nRegions of Iceland.png|[Regions of Iceland](link)\nMore content.", 
+             "Some content.\n\nMore content."),
+             
+            # Multiple gallery entries with different extensions
+            ("Article.\nimage.jpg|Caption\nfile.svg|[Link](target)\nEnd.", 
+             "Article.\n\n\nEnd."),
+             
+            # Imagemap entry
+            ("Some content.\n<imagemap>File:1990s decade montage.png|Very long caption|420px|thumb\nMore content.", 
+             "Some content.\n\nMore content."),
         ]
         
         for i, (input_text, expected) in enumerate(cases):
