@@ -18,7 +18,9 @@ def process_wikitext(text):
 
     # The order of these operations is important.
     text = remove_comments(text)
+    text, math_content = protect_math_from_templates(text)
     text = remove_templates(text)
+    text = restore_math_content(text, math_content)
     text = remove_stub_templates(text)
     text = remove_wikitables(text)
     text = remove_reference_tags(text)
@@ -26,8 +28,10 @@ def process_wikitext(text):
     text = fix_broken_links(text)
     text = convert_internal_links(text)
     text = convert_html_formatting(text)
+    text = remove_file_references(text)
     text = fix_date_ranges(text)
     text = fix_lists(text)
+    text = fix_definition_lists(text)
     text = convert_bold_and_italics(text)
     
     text = fix_indented_math(text)
@@ -41,6 +45,38 @@ def process_wikitext(text):
 def fix_math_tags(text):
     """Converts <math>...</math> to $$...$$."""
     return re.sub(r'<math.*?>(.*?)</math>', r'$$\1$$', text, flags=re.DOTALL)
+
+def protect_math_from_templates(text):
+    """
+    Temporarily protects math content from template removal by replacing it with placeholders.
+    Returns the modified text and a dictionary mapping placeholders to original content.
+    """
+    import re
+    
+    math_content = {}
+    placeholder_counter = 0
+    
+    def replace_math(match):
+        nonlocal placeholder_counter
+        content = match.group(1)
+        placeholder = f"__MATH_PLACEHOLDER_{placeholder_counter}__"
+        math_content[placeholder] = content
+        placeholder_counter += 1
+        return f"$${placeholder}$$"
+    
+    # Find and replace all $$....$$ blocks
+    text = re.sub(r'\$\$(.*?)\$\$', replace_math, text, flags=re.DOTALL)
+    
+    return text, math_content
+
+def restore_math_content(text, math_content):
+    """
+    Restores the original math content by replacing placeholders.
+    """
+    for placeholder, content in math_content.items():
+        text = text.replace(f"$${placeholder}$$", f"$${content}$$")
+    
+    return text
 
 def rescue_number_templates(text):
     """
@@ -132,10 +168,54 @@ def fix_broken_links(text):
     """
     return re.sub(r'\[\[([^\[\]]*?)\](?!\])', r'[\1]', text)
 
+def fix_complex_wikilinks(text):
+    """
+    Handles complex wikilinks that contain nested brackets before main link processing.
+    Specifically targets IPA pronunciation links like [[Help:IPA/Italian|[iˈtaːlja]]].
+    Converts them to proper markdown links preserving both the content and target.
+    """
+    def convert_ipa_link(match):
+        full_title = match.group(1)  # e.g., "Help:IPA/Italian"
+        content = match.group(2)     # e.g., "iˈtaːlja"
+        
+        # Normalize the title to create the target URL
+        normalized_title = normalize_title(full_title)
+        
+        # Return the proper markdown link
+        return f'[{content}]({normalized_title})'
+    
+    # Pattern for IPA pronunciation links: [[Help:IPA/Language|[pronunciation]]]
+    # Convert to proper markdown links: [pronunciation](help_ipa_language_hash)
+    text = re.sub(
+        r'\[\[(Help:IPA/[^|]+)\|\[([^\]]+)\]\]\]',
+        convert_ipa_link,
+        text,
+        flags=re.IGNORECASE
+    )
+    
+    # More general pattern for any link with nested brackets in the display text
+    # [[link|[content]]] -> [content](link_normalized)
+    def convert_general_link(match):
+        title = match.group(1)
+        content = match.group(2)
+        normalized_title = normalize_title(title)
+        return f'[{content}]({normalized_title})'
+    
+    text = re.sub(
+        r'\[\[([^|]+)\|\[([^\]]+)\]\]\]',
+        convert_general_link,
+        text
+    )
+    
+    return text
+
 def convert_internal_links(text):
     """
     Replaces internal links: [[link|text]] -> [text](link)
     """
+    # First handle complex IPA-style links with nested brackets
+    text = fix_complex_wikilinks(text)
+    
     cur = 0
     res = ''
     # match tail after wikilink, e.g. the 's' in [[apple]]s
@@ -151,6 +231,10 @@ def convert_internal_links(text):
         
         title = inner[:pipe].rstrip() if pipe > -1 else inner
         label = inner[pipe + 1:].strip() if pipe > -1 else title
+        
+        # Clean brackets from label if it's enclosed (like IPA pronunciation)
+        if label.startswith('[') and label.endswith(']'):
+            label = label[1:-1]
         
         # Clean title for checking prefixes
         clean_title = title.strip().lower()
@@ -185,6 +269,18 @@ def convert_internal_links(text):
         
     return res + text[cur:]
 
+def clean_leftover_wikilinks(text):
+    """
+    Cleans up any remaining Wikipedia-style [[link]] syntax that escaped the main converter.
+    This is a safety net for edge cases like nested brackets or malformed links.
+    """
+    # Simple approach: remove any remaining [[ ]] brackets
+    # These should only be leftover artifacts from failed conversions
+    text = re.sub(r'\[\[', '', text)
+    text = re.sub(r'\]\]', '', text)
+    
+    return text
+
 def convert_html_formatting(text):
     """
     Converts HTML tags to Markdown or removes them.
@@ -207,6 +303,19 @@ def convert_html_formatting(text):
     # Remove self-closing nowiki and br
     text = re.sub(r'<nowiki\s*/>', '', text, flags=re.IGNORECASE)
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    
+    return text
+
+def remove_file_references(text):
+    """
+    Removes standalone file reference lines that remain from gallery processing.
+    These are lines like 'File:Image.jpg|Caption text' that are image metadata
+    and not useful content for LLM training.
+    """
+    # Remove lines that start with File: (case insensitive)
+    # These are typically from gallery content where the gallery tags were removed
+    # but the file references remained
+    text = re.sub(r'^File:[^\n]*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
     
     return text
 
@@ -288,6 +397,18 @@ def fix_lists(text):
     text = re.sub(r'^#{3}\s*', '    1. ', text, flags=re.MULTILINE)
     text = re.sub(r'^#{2}\s*', '  1. ', text, flags=re.MULTILINE)
     text = re.sub(r'^#\s*', '1. ', text, flags=re.MULTILINE)
+    
+    return text
+
+def fix_definition_lists(text):
+    """
+    Converts MediaWiki definition lists to Markdown subheadings.
+    Definition terms starting with ';' become level 4 headers (####).
+    This provides better structure for LLM training than raw semicolon terms.
+    """
+    # Convert lines starting with ; to #### headers
+    # These are MediaWiki definition list terms that should be proper subheadings
+    text = re.sub(r'^;(.+)$', r'#### \1', text, flags=re.MULTILINE)
     
     return text
 

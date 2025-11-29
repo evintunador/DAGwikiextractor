@@ -8,7 +8,9 @@
       "Bash(utils/inspect_dump.py --help)",
       "Bash(python utils/inspect_dump.py:*)",
       "Bash(python -m pytest test_extract.py::TestExtract::test_remove_stub_templates -v)",
-      "Bash(python -m pytest tests/test_extract.py -v)"
+      "Bash(python -m pytest tests/test_extract.py -v)",
+      "Bash(python3:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

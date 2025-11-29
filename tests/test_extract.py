@@ -9,9 +9,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from extract import (
     fix_lists, fix_broken_links, fix_math_tags, rescue_number_templates,
     remove_comments, remove_templates, remove_stub_templates, remove_wikitables, remove_reference_tags,
-    remove_external_links, convert_internal_links, convert_html_formatting,
-    convert_bold_and_italics, fix_indented_math, format_sections_and_whitespace,
-    normalize_title, remove_unwanted_sections, fix_date_ranges
+    remove_external_links, convert_internal_links, convert_html_formatting, remove_file_references,
+    convert_bold_and_italics, fix_indented_math, format_sections_and_whitespace, fix_definition_lists,
+    normalize_title, remove_unwanted_sections, fix_date_ranges, protect_math_from_templates, restore_math_content, fix_complex_wikilinks
 )
 
 class TestExtract(unittest.TestCase):
@@ -72,6 +72,99 @@ class TestExtract(unittest.TestCase):
         expected_lines = [l for l in expected.split('\n') if l.strip()]
         
         self.assertEqual(processed_lines, expected_lines)
+
+    def test_fix_definition_lists(self):
+        """Test conversion of MediaWiki definition lists to Markdown headers."""
+        
+        cases = [
+            # Single definition term
+            ("Some text.\n;Definition term\n- List item", 
+             "Some text.\n#### Definition term\n- List item"),
+            
+            # Multiple definition terms
+            ("Text.\n;First term\n- Item 1\n;Second term\n- Item 2", 
+             "Text.\n#### First term\n- Item 1\n#### Second term\n- Item 2"),
+            
+            # Definition term with links and formatting
+            (";God's [authority](link)\n- Moses parts the Red Sea", 
+             "#### God's [authority](link)\n- Moses parts the Red Sea"),
+             
+            # Mixed with other content
+            ("Introduction.\n\n;Healing\n- A man gets up and walks\n\nConclusion.", 
+             "Introduction.\n\n#### Healing\n- A man gets up and walks\n\nConclusion."),
+            
+            # Definition term at start of text
+            (";Starting term\nContent follows.", 
+             "#### Starting term\nContent follows."),
+             
+            # No definition terms (should remain unchanged)
+            ("Regular text without definition lists.", 
+             "Regular text without definition lists."),
+             
+            # Semicolon in middle of line (should not change)
+            ("Text with ; semicolon in middle.", 
+             "Text with ; semicolon in middle."),
+        ]
+        
+        for i, (input_text, expected) in enumerate(cases):
+            with self.subTest(case=i, input=input_text):
+                result = fix_definition_lists(input_text)
+                self.assertEqual(result, expected)
+
+    def test_math_protection_from_templates(self):
+        """Test that math content is protected from template removal."""
+        
+        # Test content with LaTeX braces that would be mistaken for templates
+        original_text = "Acceleration $$\\mathbf{{a}}$$ formula: $$\\mathbf{{a}} = {{v_1 - v_0} \\over {t_1 - t_0}}$$"
+        
+        # Simulate the protection workflow
+        protected_text, math_content = protect_math_from_templates(original_text)
+        
+        # Math content should be extracted to dictionary
+        self.assertGreater(len(math_content), 0, "Math content should be extracted")
+        
+        # Protected text should have placeholders
+        self.assertIn("__MATH_PLACEHOLDER_", protected_text)
+        
+        # After template removal (which normally removes {{...}}), the protected text should be unchanged
+        after_template_removal = remove_templates(protected_text)
+        
+        # Restore the math content
+        final_result = restore_math_content(after_template_removal, math_content)
+        
+        # Final result should match the original (LaTeX braces preserved)
+        self.assertEqual(final_result, original_text)
+
+    def test_fix_complex_wikilinks(self):
+        """Test fixing complex wikilinks with nested brackets like IPA pronunciation."""
+        
+        cases = [
+            # IPA pronunciation link - should become proper markdown link
+            ("**Italy** ([[Help:IPA/Italian|[iˈtaːlja]]]) is a country",
+             r"\*\*Italy\*\* \(\[iˈtaːlja\]\(help_ipa_italian_[a-f0-9]{6}\)\) is a country"),
+             
+            # Generic nested brackets - should become proper markdown link
+            ("Text [[SomeLink|[content]]] more text",
+             r"Text \[content\]\(somelink_[a-f0-9]{6}\) more text"),
+             
+            # Multiple complex IPA links
+            ("[[Help:IPA/French|[fʁɑ̃s]]] and [[Help:IPA/German|[dɔɪtʃlant]]]",
+             r"\[fʁɑ̃s\]\(help_ipa_french_[a-f0-9]{6}\) and \[dɔɪtʃlant\]\(help_ipa_german_[a-f0-9]{6}\)"),
+             
+            # No complex links (should remain unchanged)
+            ("Regular [[simple|link]] text",
+             "Regular [[simple|link]] text"),
+        ]
+        
+        for i, (input_text, expected_pattern) in enumerate(cases):
+            with self.subTest(case=i, input=input_text):
+                result = fix_complex_wikilinks(input_text)
+                if "[a-f0-9]" in expected_pattern:
+                    # This is a regex pattern, use assertRegex
+                    self.assertRegex(result, expected_pattern)
+                else:
+                    # This is an exact match
+                    self.assertEqual(result, expected_pattern)
 
     def test_fix_math_tags(self):
         text = "Equation <math>E=mc^2</math>."
@@ -172,6 +265,11 @@ class TestExtract(unittest.TestCase):
         text = "See [[:Category:Cats]]."
         res = convert_internal_links(text)
         self.assertEqual(res, "See :Category:Cats.")
+        
+        # IPA pronunciation with brackets in label
+        text = "**Italy** ([[Help:IPA/Italian|[iˈtaːlja]]])."
+        res = convert_internal_links(text)
+        self.assertRegex(res, r"\*\*Italy\*\* \(\[iˈtaːlja\]\(help_ipa_italian_[a-f0-9]{6}\)\)\.")
 
     def test_convert_html_formatting(self):
         # Test blockquote conversion
@@ -204,6 +302,48 @@ class TestExtract(unittest.TestCase):
         # Test br tag conversion
         text = "Line 1<br>Line 2<br />Line 3."
         self.assertEqual(convert_html_formatting(text), "Line 1\nLine 2\nLine 3.")
+
+    def test_remove_file_references(self):
+        """Test removal of standalone File: reference lines from gallery content."""
+        
+        cases = [
+            # Single file reference
+            ("Some content.\nFile:Image.jpg|Caption text\nMore content.", 
+             "Some content.\n\nMore content."),
+            
+            # Multiple file references
+            ("Article.\nFile:First.jpg|Caption 1\nFile:Second.png|Caption 2\nEnd.", 
+             "Article.\n\n\nEnd."),
+            
+            # Mixed case
+            ("Start.\nfile:lowercase.gif|Caption\nFILE:UPPERCASE.JPG|Caption\nEnd.", 
+             "Start.\n\n\nEnd."),
+             
+            # File reference with complex caption containing links
+            ("Text.\nFile:Complex.jpg|Caption with [[links]] and other text\nMore text.", 
+             "Text.\n\nMore text."),
+            
+            # File reference at start
+            ("File:Start.jpg|Caption\nRegular content.", 
+             "\nRegular content."),
+            
+            # File reference at end
+            ("Regular content.\nFile:End.jpg|Caption", 
+             "Regular content.\n"),
+             
+            # No file references (should remain unchanged)
+            ("Regular text without file references.", 
+             "Regular text without file references."),
+             
+            # File: mentioned in text (not at line start)
+            ("The File:Something.jpg is mentioned inline.", 
+             "The File:Something.jpg is mentioned inline."),
+        ]
+        
+        for i, (input_text, expected) in enumerate(cases):
+            with self.subTest(case=i, input=input_text):
+                result = remove_file_references(input_text)
+                self.assertEqual(result, expected)
 
     def test_convert_bold_and_italics(self):
         text = "'''Bold''' and ''Italic''."
