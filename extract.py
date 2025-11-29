@@ -304,6 +304,40 @@ def convert_html_formatting(text):
     text = re.sub(r'<nowiki\s*/>', '', text, flags=re.IGNORECASE)
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
     
+    # Convert HTML lists to Markdown
+    text = convert_html_lists(text)
+    
+    return text
+
+def convert_html_lists(text):
+    """
+    Converts HTML ul/ol and li tags to Markdown list format.
+    Removes style attributes and other HTML attributes.
+    Handles both well-formed and malformed HTML.
+    """
+    def process_list(match):
+        list_content = match.group(1)
+        list_items = []
+        
+        # Split by <li> tags to find all items, handling both well-formed and malformed
+        # This approach handles cases where </li> might be missing or malformed
+        li_splits = re.split(r'<li(?:\s[^>]*)?>', list_content, flags=re.IGNORECASE)
+        
+        # The first element is usually empty (before the first <li>)
+        for item_content in li_splits[1:]:  # Skip the first empty part
+            # Remove any closing tags and clean up
+            clean_item = re.sub(r'</li>|<li\b[^>]*>', '', item_content, flags=re.IGNORECASE).strip()
+            if clean_item:
+                list_items.append(f"- {clean_item}")
+        
+        return '\n'.join(list_items)
+    
+    # Handle unordered lists
+    text = re.sub(r'<ul\b[^>]*>(.*?)</ul>', process_list, text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Handle ordered lists (convert to unordered for simplicity)
+    text = re.sub(r'<ol\b[^>]*>(.*?)</ol>', process_list, text, flags=re.DOTALL | re.IGNORECASE)
+    
     return text
 
 def remove_file_references(text):

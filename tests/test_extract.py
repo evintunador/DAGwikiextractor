@@ -302,6 +302,21 @@ class TestExtract(unittest.TestCase):
         # Test br tag conversion
         text = "Line 1<br>Line 2<br />Line 3."
         self.assertEqual(convert_html_formatting(text), "Line 1\nLine 2\nLine 3.")
+        
+        # Test HTML list conversion
+        text = '<ul><li>Item 1</li><li>Item 2</li></ul>'
+        expected = "- Item 1\n- Item 2"
+        self.assertEqual(convert_html_formatting(text), expected)
+        
+        # Test HTML list with style attributes
+        text = '<ul><li style="background-color: #fff;">Styled item</li></ul>'
+        expected = "- Styled item"
+        self.assertEqual(convert_html_formatting(text), expected)
+        
+        # Test malformed HTML list (missing closing tags)
+        text = '<ul><li style="color: red;">Item 1<li><li>Item 2</li></ul>'
+        expected = "- Item 1\n- Item 2"  # Empty items are skipped
+        self.assertEqual(convert_html_formatting(text), expected)
 
     def test_remove_file_references(self):
         """Test removal of standalone File: reference lines from gallery content."""
