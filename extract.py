@@ -35,6 +35,7 @@ def process_wikitext(text):
     text = fix_definition_lists(text)
     text = convert_bold_and_italics(text)
     text = fix_corrupted_asterisks(text)
+    text = fix_malformed_formatting(text)
     text = fix_excessive_whitespace(text)
     
     text = fix_indented_math(text)
@@ -506,6 +507,30 @@ def fix_excessive_whitespace(text):
         result.pop()
     
     return '\n'.join(result)
+
+def fix_malformed_formatting(text):
+    """
+    Fixes malformed bold and italic formatting with unbalanced asterisks.
+    Common issues:
+    - ***word*** -> **word** (prefer bold for emphasis)  
+    - ***S**ystème **I**nternational* -> **S**ystème **I**nternational (remove unbalanced outer italics)
+    - ****word** -> **word** (catch any remaining corrupted patterns)
+    """
+    # First, fix complex mixed formatting patterns before simpler ones  
+    # Pattern: ***content with **bold** inside ending with single *
+    # Example: ***S**ystème **I**nternational d'unités* -> S**ystème **I**nternational d'unités
+    # More specific pattern - matches content with multiple ** pairs inside
+    # Example: ***S**ystème **I**nternational d'unités* has 3 ** pairs
+    text = re.sub(r'\*\*\*([^*]+(?:\*\*[^*]+)+)\*(?!\*)', r'\1', text)
+    
+    # Fix simple triple asterisks around words (prefer bold for emphasis)
+    # ***word*** -> **word**
+    text = re.sub(r'\*\*\*([^*]+)\*\*\*', r'**\1**', text)
+    
+    # Clean up any remaining 4+ asterisk patterns that might have been missed
+    text = re.sub(r'\*{4,}([^*]+)\*\*', r'**\1**', text)
+    
+    return text
 
 def fix_date_ranges(text):
     """

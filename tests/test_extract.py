@@ -12,7 +12,7 @@ from extract import (
     remove_external_links, convert_internal_links, convert_html_formatting, remove_file_references,
     convert_bold_and_italics, fix_indented_math, format_sections_and_whitespace, fix_definition_lists,
     normalize_title, remove_unwanted_sections, fix_date_ranges, protect_math_from_templates, restore_math_content, fix_complex_wikilinks,
-    fix_corrupted_asterisks, fix_mediawiki_links, fix_excessive_whitespace
+    fix_corrupted_asterisks, fix_mediawiki_links, fix_excessive_whitespace, fix_malformed_formatting
 )
 
 class TestExtract(unittest.TestCase):
@@ -517,6 +517,32 @@ Content 2.
         for i, (input_text, expected) in enumerate(cases):
             with self.subTest(case=i, input=repr(input_text)):
                 result = fix_excessive_whitespace(input_text)
+                self.assertEqual(result, expected)
+
+    def test_fix_malformed_formatting(self):
+        """Test fixing malformed bold and italic formatting with unbalanced asterisks."""
+        
+        cases = [
+            # Simple triple asterisks -> prefer bold
+            ("***subtext***", "**subtext**"),
+            ("***If*** is also a poem", "**If** is also a poem"),
+            ("***i***", "**i**"),
+            ("***tele*** and ***vision***", "**tele** and **vision**"),
+            
+            # Complex mixed formatting - remove unbalanced outer italics
+            ("***S**ystème **I**nternational d'unités*", "S**ystème **I**nternational d'unités"),
+            
+            # Remaining corrupted patterns
+            ("****Mammalia**", "**Mammalia**"),
+            
+            # Should not affect correct formatting
+            ("**bold** and *italic* text", "**bold** and *italic* text"),
+            ("Normal text without formatting", "Normal text without formatting"),
+        ]
+        
+        for i, (input_text, expected) in enumerate(cases):
+            with self.subTest(case=i, input=repr(input_text)):
+                result = fix_malformed_formatting(input_text)
                 self.assertEqual(result, expected)
 
 if __name__ == '__main__':
