@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Read(//Users/evintunador/repos/gpt-lab/experiments/dagseq2dagseq/data/**)",
+      "Bash(python -m pytest test_extract.py -v)",
+      "Bash(python -m pytest test_extract.py::TestExtract::test_convert_html_formatting -v)",
+      "Bash(utils/inspect_dump.py --help)",
+      "Bash(python utils/inspect_dump.py:*)",
+      "Bash(python -m pytest test_extract.py::TestExtract::test_remove_stub_templates -v)",
+      "Bash(python -m pytest tests/test_extract.py -v)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

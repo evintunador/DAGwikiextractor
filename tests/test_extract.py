@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from extract import (
     fix_lists, fix_broken_links, fix_math_tags, rescue_number_templates,
-    remove_comments, remove_templates, remove_wikitables, remove_reference_tags,
+    remove_comments, remove_templates, remove_stub_templates, remove_wikitables, remove_reference_tags,
     remove_external_links, convert_internal_links, convert_html_formatting,
     convert_bold_and_italics, fix_indented_math, format_sections_and_whitespace,
     normalize_title, remove_unwanted_sections, fix_date_ranges
@@ -91,6 +91,44 @@ class TestExtract(unittest.TestCase):
         nested = "Start {{outer|{{inner}}}} End."
         self.assertEqual(remove_templates(nested), "Start  End.")
 
+    def test_remove_stub_templates(self):
+        """Test removal of stub and navigation templates that commonly escape general template removal."""
+        
+        # Test stub templates
+        cases = [
+            # Math stub template
+            ("Article text.\n\n{{math-stub}}", "Article text."),
+            
+            # Physics stub template  
+            ("Article text.\n\n{{physics-stub}}", "Article text."),
+            
+            # Clear template
+            ("Article text.\n\n{{-}}\n\nMore text.", "Article text.\n\nMore text."),
+            
+            # Navigation template
+            ("Article text.\n\n{{shapes}}", "Article text."),
+            
+            # Generic navigation template
+            ("Article text.\n\n{{nav-template}}", "Article text."),
+            
+            # Multiple templates
+            ("Article text.\n\n{{shapes}}\n\n{{math-stub}}", "Article text."),
+            
+            # Template with spaces
+            ("Article text.\n  {{physics-stub}}  ", "Article text."),
+            
+            # Short generic templates (likely metadata)
+            ("Article text.\n{{bio}}\n{{geo}}", "Article text."),
+            
+            # Mixed with other content
+            ("- Item 1\n- Item 2\n\n{{shapes}}\n\n{{math-stub}}", "- Item 1\n- Item 2"),
+        ]
+        
+        for i, (input_text, expected) in enumerate(cases):
+            with self.subTest(case=i, input=input_text):
+                result = remove_stub_templates(input_text)
+                self.assertEqual(result.strip(), expected.strip())
+
     def test_remove_wikitables(self):
         text = "Start {| table |} End."
         self.assertEqual(remove_wikitables(text), "Start  End.")
@@ -136,17 +174,36 @@ class TestExtract(unittest.TestCase):
         self.assertEqual(res, "See :Category:Cats.")
 
     def test_convert_html_formatting(self):
+        # Test blockquote conversion
         text = "<blockquote>Quote</blockquote>"
         self.assertEqual(convert_html_formatting(text).strip(), "> Quote")
         
+        # Test superscript and subscript conversion
         text = "<sup>sup</sup>"
         self.assertEqual(convert_html_formatting(text), "^sup")
         
         text = "<sub>sub</sub>"
         self.assertEqual(convert_html_formatting(text), "_sub")
         
-        text = "Code <nowiki>ignore</nowiki>."
-        self.assertEqual(convert_html_formatting(text), "Code ignore.")
+        # Test removal of intrusive tags (keep content, remove tags)
+        intrusive_tags = ['nowiki', 'big', 'small', 'center', 'font', 'span', 'div', 'u', 's', 'strike', 'code', 'tt', 'gallery']
+        for tag in intrusive_tags:
+            with self.subTest(tag=tag):
+                text = f"Before <{tag}>content</{tag}> after."
+                expected = "Before content after."
+                self.assertEqual(convert_html_formatting(text), expected)
+                
+                # Test with attributes
+                text = f'Before <{tag} class="test">content</{tag}> after.'
+                self.assertEqual(convert_html_formatting(text), expected)
+        
+        # Test self-closing nowiki
+        text = "Code <nowiki/> here."
+        self.assertEqual(convert_html_formatting(text), "Code  here.")
+        
+        # Test br tag conversion
+        text = "Line 1<br>Line 2<br />Line 3."
+        self.assertEqual(convert_html_formatting(text), "Line 1\nLine 2\nLine 3.")
 
     def test_convert_bold_and_italics(self):
         text = "'''Bold''' and ''Italic''."

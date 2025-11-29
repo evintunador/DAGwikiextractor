@@ -19,6 +19,7 @@ def process_wikitext(text):
     # The order of these operations is important.
     text = remove_comments(text)
     text = remove_templates(text)
+    text = remove_stub_templates(text)
     text = remove_wikitables(text)
     text = remove_reference_tags(text)
     text = remove_external_links(text)
@@ -82,6 +83,31 @@ def remove_comments(text):
 def remove_templates(text):
     """Removes template invocations (e.g., {{...}})."""
     return drop_nested(text, r'{{', r'}}')
+
+def remove_stub_templates(text):
+    """
+    Removes specific stub and navigation templates that commonly escape 
+    the general template removal, especially at the end of articles.
+    These include stub classification templates and navigation boxes.
+    """
+    # Pattern to match standalone templates at the end of lines or in their own paragraphs
+    # This catches templates that might escape the general removal due to formatting
+    stub_patterns = [
+        # Stub templates
+        r'^\s*\{\{[^}]*stub[^}]*\}\}\s*$',
+        # Navigation and formatting templates  
+        r'^\s*\{\{-\}\}\s*$',          # Clear template
+        r'^\s*\{\{clear\}\}\s*$',      # Clear template variant
+        r'^\s*\{\{shapes\}\}\s*$',     # Navigation templates
+        r'^\s*\{\{[^}]*nav[^}]*\}\}\s*$',  # Navigation boxes
+        # Generic short templates that are likely metadata
+        r'^\s*\{\{[a-zA-Z-]{1,20}\}\}\s*$',  # Short template names (likely stubs/nav)
+    ]
+    
+    for pattern in stub_patterns:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE | re.IGNORECASE)
+    
+    return text
 
 def remove_wikitables(text):
     """Removes wikitable syntax ({|...|})."""
@@ -175,8 +201,8 @@ def convert_html_formatting(text):
     text = re.sub(r'<sub.*?>(.*?)</sub>', r'_\1', text, flags=re.DOTALL | re.IGNORECASE)
     
     # Remove intrusive tags but keep content
-    # Includes nowiki, big, small, center, font, span, div, u, s, strike, code, tt
-    text = re.sub(r'</?(?:nowiki|big|small|center|font|span|div|u|s|strike|code|tt)\b.*?>', '', text, flags=re.IGNORECASE)
+    # Includes nowiki, big, small, center, font, span, div, u, s, strike, code, tt, gallery
+    text = re.sub(r'</?(?:nowiki|big|small|center|font|span|div|u|s|strike|code|tt|gallery)\b.*?>', '', text, flags=re.IGNORECASE)
     
     # Remove self-closing nowiki and br
     text = re.sub(r'<nowiki\s*/>', '', text, flags=re.IGNORECASE)
