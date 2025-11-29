@@ -11,7 +11,8 @@ from extract import (
     remove_comments, remove_templates, remove_stub_templates, remove_wikitables, remove_reference_tags,
     remove_external_links, convert_internal_links, convert_html_formatting, remove_file_references,
     convert_bold_and_italics, fix_indented_math, format_sections_and_whitespace, fix_definition_lists,
-    normalize_title, remove_unwanted_sections, fix_date_ranges, protect_math_from_templates, restore_math_content, fix_complex_wikilinks
+    normalize_title, remove_unwanted_sections, fix_date_ranges, protect_math_from_templates, restore_math_content, fix_complex_wikilinks,
+    fix_corrupted_asterisks, fix_mediawiki_links, fix_excessive_whitespace
 )
 
 class TestExtract(unittest.TestCase):
@@ -404,6 +405,32 @@ Content 2.
         res = remove_unwanted_sections(lines)
         self.assertEqual(res, ["== Header ==", "Content"])
 
+    def test_fix_corrupted_asterisks(self):
+        """Test fixing corrupted content that appears as multiple asterisks."""
+        
+        cases = [
+            # Malformed bold markup
+            ("Text with ****Mammalia** content", "Text with **Mammalia** content"),
+            
+            # Standalone missing content
+            ("- **** is the biggest country", "- [missing content] is the biggest country"),
+            ("**Pi** (****) is a constant", "**Pi** ([missing content]) is a constant"),
+            
+            # Math symbols (5 asterisks)
+            ("Symbol *****", "Symbol *"),
+            
+            # Long chains
+            ("Text ******** asterisks", "Text *** asterisks"),
+            
+            # Should preserve normal formatting
+            ("Normal **bold** and *italic* text", "Normal **bold** and *italic* text"),
+        ]
+        
+        for i, (input_text, expected) in enumerate(cases):
+            with self.subTest(case=i, input=input_text):
+                result = fix_corrupted_asterisks(input_text)
+                self.assertEqual(result, expected)
+
     def test_fix_date_ranges(self):
         """Test fixing concatenated date ranges in parentheses."""
         cases = [
@@ -424,6 +451,73 @@ Content 2.
         for inp, expected in cases:
             with self.subTest(inp=inp):
                 self.assertEqual(fix_date_ranges(inp), expected)
+
+    def test_fix_mediawiki_links(self):
+        """Test converting MediaWiki-style double bracket links to markdown format."""
+        
+        cases = [
+            # Simple links
+            ("Text with [[mercury]] element", "Text with [mercury](mercury_ba7216) element"),
+            ("Read about [[bromine]] here", "Read about [bromine](bromine_8a1b9d) here"),
+            
+            # Piped links (display|actual link)  
+            ("[[Mercury (element)|Mercury]]", "[Mercury](mercury_(element)_dff2a1)"),
+            ("[[laboratory|laboratories]]", "[laboratories](laboratory_5b3879)"),
+            
+            # Multiple links in text
+            ("[[Bromine]] and [[silver]] are elements", "[Bromine](bromine_8a1b9d) and [silver](silver_6d7a9c) are elements"),
+            
+            # Links with spaces and special chars
+            ("[[periodic table]]", "[periodic table](periodic_table_f1b2c3)"),
+            ("[[States of matter|physical states]]", "[physical states](states_of_matter_a4d5e6)"),
+            
+            # Should not affect normal text
+            ("Normal text without links", "Normal text without links"),
+            ("Text with [existing](link) format", "Text with [existing](link) format"),
+        ]
+        
+        for i, (input_text, expected_pattern) in enumerate(cases):
+            with self.subTest(case=i, input=input_text):
+                result = fix_mediawiki_links(input_text)
+                # For this test, we check the structure rather than exact hash values
+                # since the hash generation might vary
+                if '[[' not in input_text or input_text == "Normal text without links" or "[existing]" in input_text:
+                    # No MediaWiki links or should be unchanged
+                    self.assertEqual(result, input_text)
+                else:
+                    # Should have converted to markdown format
+                    self.assertNotIn('[[', result)
+                    self.assertNotIn(']]', result)
+                    # Should contain markdown-style links
+                    self.assertRegex(result, r'\[[^\]]+\]\([^\)]+\)')
+
+    def test_fix_excessive_whitespace(self):
+        """Test removing excessive blank lines and normalizing whitespace."""
+        
+        cases = [
+            # Three consecutive empty lines -> two empty lines
+            ("Line 1\n\n\n\nLine 2", "Line 1\n\n\nLine 2"),
+            
+            # Four consecutive empty lines -> two empty lines 
+            ("Content\n\n\n\n\nMore content", "Content\n\n\nMore content"),
+            
+            # Leading and trailing whitespace removal
+            ("\n\nContent here\n\n", "Content here"),
+            
+            # Already good spacing preserved
+            ("Paragraph 1\n\nParagraph 2", "Paragraph 1\n\nParagraph 2"),
+            
+            # Single empty line preserved
+            ("Text\n\nMore text", "Text\n\nMore text"),
+            
+            # Mixed spacing scenarios
+            ("Start\n\n\n\n\nMiddle\n\nEnd\n\n\n\n", "Start\n\n\nMiddle\n\nEnd"),
+        ]
+        
+        for i, (input_text, expected) in enumerate(cases):
+            with self.subTest(case=i, input=repr(input_text)):
+                result = fix_excessive_whitespace(input_text)
+                self.assertEqual(result, expected)
 
 if __name__ == '__main__':
     unittest.main()

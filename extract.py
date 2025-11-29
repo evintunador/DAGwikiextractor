@@ -27,12 +27,15 @@ def process_wikitext(text):
     text = remove_external_links(text)
     text = fix_broken_links(text)
     text = convert_internal_links(text)
+    text = fix_mediawiki_links(text)
     text = convert_html_formatting(text)
     text = remove_file_references(text)
     text = fix_date_ranges(text)
     text = fix_lists(text)
     text = fix_definition_lists(text)
     text = convert_bold_and_italics(text)
+    text = fix_corrupted_asterisks(text)
+    text = fix_excessive_whitespace(text)
     
     text = fix_indented_math(text)
     text = format_sections_and_whitespace(text)
@@ -364,6 +367,145 @@ def remove_file_references(text):
     text = re.sub(r'^<imagemap>[^\n]*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
     
     return text
+
+def fix_corrupted_asterisks(text):
+    """
+    Fixes corrupted content that appears as multiple asterisks.
+    These are usually placeholders for missing symbols or malformed markup.
+    """
+    # Fix malformed bold markup: ****text** -> **text**
+    text = re.sub(r'\*\*\*\*([^*]+)\*\*(?!\*)', r'**\1**', text)
+    
+    # Clean up long chains of asterisks first (6+ asterisks) -> reduce to 3
+    text = re.sub(r'(?<!\*)\*{6,}(?!\*)', '***', text)
+    
+    # Fix ***** (5 asterisks) which might be math symbols
+    text = re.sub(r'\*\*\*\*\*', '*', text)  # Replace with single asterisk (common math symbol)
+    
+    # Replace standalone **** with placeholder text for missing content
+    # This should now only catch actual 4-asterisk patterns
+    text = re.sub(r'(?<!\*)(\*{4})(?!\*)', '[missing content]', text)
+    
+    return text
+
+def fix_mediawiki_links(text):
+    """
+    Converts remaining MediaWiki-style double bracket links to markdown format.
+    Converts [[link]] to [link](link_hash) and [[display|link]] to [display](link_hash).
+    Removes File/Image references which should have been handled earlier.
+    """
+    import hashlib
+    
+    def generate_link_id(link_text):
+        """Generate a hash-based ID for the link, similar to existing link format"""
+        # Clean the link text and create a hash
+        clean_text = link_text.lower().strip().replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '')
+        hash_obj = hashlib.md5(clean_text.encode())
+        return clean_text + '_' + hash_obj.hexdigest()[:6]
+    
+    # First, remove File/Image references that weren't caught earlier
+    # These are complex and often contain nested links, so we need to handle them carefully
+    # Use a more sophisticated approach for File links that might span multiple lines or have nested content
+    
+    def remove_file_links(text):
+        # Handle nested File/Image links by finding balanced brackets
+        result = []
+        i = 0
+        while i < len(text):
+            # Look for [[File: or [[Image: pattern
+            if i <= len(text) - 8 and text[i:i+7] == '[[File:':
+                # Find the matching closing ]]
+                bracket_count = 2  # We've seen [[
+                j = i + 2
+                while j < len(text) - 1 and bracket_count > 0:
+                    if text[j:j+2] == '[[':
+                        bracket_count += 2
+                        j += 2
+                    elif text[j:j+2] == ']]':
+                        bracket_count -= 2
+                        j += 2
+                    else:
+                        j += 1
+                
+                if bracket_count == 0:
+                    # Skip the entire File link
+                    i = j
+                    continue
+            elif i <= len(text) - 9 and text[i:i+8] == '[[Image:':
+                # Same logic for Image links
+                bracket_count = 2
+                j = i + 2
+                while j < len(text) - 1 and bracket_count > 0:
+                    if text[j:j+2] == '[[':
+                        bracket_count += 2
+                        j += 2
+                    elif text[j:j+2] == ']]':
+                        bracket_count -= 2
+                        j += 2
+                    else:
+                        j += 1
+                
+                if bracket_count == 0:
+                    # Skip the entire Image link
+                    i = j
+                    continue
+            
+            result.append(text[i])
+            i += 1
+        
+        return ''.join(result)
+    
+    text = remove_file_links(text)
+    
+    # Handle piped links first: [[display text|actual link]] -> [display text](actual_link_hash)
+    def replace_piped_link(match):
+        full_content = match.group(1)
+        
+        # Skip if this looks like a remaining file reference
+        if full_content.startswith(('File:', 'Image:')):
+            return ''
+            
+        if '|' in full_content:
+            display_text, link_text = full_content.split('|', 1)
+            link_id = generate_link_id(link_text)
+            return f'[{display_text}]({link_id})'
+        else:
+            # Simple link: [[text]] -> [text](text_hash)
+            link_id = generate_link_id(full_content)
+            return f'[{full_content}]({link_id})'
+    
+    # Replace all MediaWiki-style links
+    text = re.sub(r'\[\[([^\]]+)\]\]', replace_piped_link, text)
+    
+    return text
+
+def fix_excessive_whitespace(text):
+    """
+    Removes excessive blank lines and normalizes whitespace.
+    Converts 3+ consecutive empty lines to 2 empty lines maximum.
+    """
+    # Split into lines and process
+    lines = text.split('\n')
+    result = []
+    empty_line_count = 0
+    
+    for line in lines:
+        if line.strip() == '':
+            empty_line_count += 1
+            # Allow maximum of 2 consecutive empty lines
+            if empty_line_count <= 2:
+                result.append(line)
+        else:
+            empty_line_count = 0
+            result.append(line)
+    
+    # Also clean up whitespace at the very beginning and end
+    while result and result[0].strip() == '':
+        result.pop(0)
+    while result and result[-1].strip() == '':
+        result.pop()
+    
+    return '\n'.join(result)
 
 def fix_date_ranges(text):
     """
